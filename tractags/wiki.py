@@ -26,6 +26,7 @@ from trac.wiki.formatter import format_to_oneliner
 from trac.wiki.model import WikiPage
 from trac.wiki.parser import WikiParser
 from trac.wiki.web_ui import WikiModule
+from trac.db import with_transaction
 
 from tractags.api import Counter, DefaultTagProvider, TagSystem, _, requests
 from tractags.macros import TagTemplateProvider
@@ -52,10 +53,10 @@ class WikiTagProvider(DefaultTagProvider):
 
     def get_tagged_resources(self, req, tags=None, filter=None):
         if self.exclude_templates:
-            db = self.env.get_db_cnx()
-            like_templates = ''.join(
-                ["'", db.like_escape(WikiModule.PAGE_TEMPLATES_PREFIX), "%%'"])
-            filter = (' '.join(['name NOT', db.like() % like_templates]),)
+            with self.env.db_query as db:
+	            like_templates = ''.join(
+	                ["'", db.like_escape(WikiModule.PAGE_TEMPLATES_PREFIX), "%%'"])
+	            filter = (' '.join(['name NOT', db.like() % like_templates]),)
         return super(WikiTagProvider, self).get_tagged_resources(req, tags,
                                                                  filter)
 
@@ -63,10 +64,10 @@ class WikiTagProvider(DefaultTagProvider):
         if not self.check_permission(req.perm, 'view'):
             return Counter()
         if self.exclude_templates:
-            db = self.env.get_db_cnx()
-            like_templates = ''.join(
-                ["'", db.like_escape(WikiModule.PAGE_TEMPLATES_PREFIX), "%%'"])
-            filter = (' '.join(['name NOT', db.like() % like_templates]),)
+            with self.env.db_query as db:
+	            like_templates = ''.join(
+	                ["'", db.like_escape(WikiModule.PAGE_TEMPLATES_PREFIX), "%%'"])
+	            filter = (' '.join(['name NOT', db.like() % like_templates]),)
         return super(WikiTagProvider, self).get_all_tags(req, filter)
 
     def describe_tagged_resource(self, req, resource):

@@ -18,6 +18,7 @@ from trac.ticket.api import ITicketChangeListener, TicketSystem
 from trac.ticket.model import Ticket
 from trac.util import get_reporter_id
 from trac.util.text import to_unicode
+from trac.db import with_transaction
 
 from tractags.api import DefaultTagProvider, ITagProvider, _
 from tractags.model import delete_tags
@@ -50,16 +51,16 @@ class TicketTagProvider(DefaultTagProvider):
     use_cache = False
 
     def __init__(self):
-        db = self.env.get_db_cnx()
-        try:
-            self._fetch_tkt_tags(db)
-            db.commit()
-        except get_db_exc(self.env).IntegrityError, e:
-            self.log.warn('tags for ticket already exist: %s', to_unicode(e))
-            db.rollback()
-        except:
-            db.rollback()
-            raise
+        with self.env.db_transaction as db:
+	        try:
+	            self._fetch_tkt_tags(db)
+	            db.commit()
+	        except get_db_exc(self.env).IntegrityError, e:
+	            self.log.warn('tags for ticket already exist: %s', to_unicode(e))
+	            db.rollback()
+	        except:
+	            db.rollback()
+	            raise
         cfg = self.config
         cfg_key = 'permission_policies'
         default_policies = cfg.defaults().get('trac', {}).get(cfg_key)
@@ -86,23 +87,23 @@ class TicketTagProvider(DefaultTagProvider):
                         self._check_permission(req, resource, 'view'):
                     yield resource, tags
         else:
-            db = self.env.get_db_cnx()
-            cursor = db.cursor()
-            sql = """
-                SELECT ts.name, ts.tag
-                  FROM tags
-                  LEFT JOIN tags ts ON (
-                       tags.tagspace=ts.tagspace AND tags.name=ts.name)
-                 WHERE tags.tagspace=%%s AND tags.tag IN (%s)
-                 ORDER by ts.name
-            """ % ', '.join(['%s' for t in tags])
-            args = [self.realm] + list(tags)
-            cursor.execute(sql, args)
-            for name, tags in groupby(cursor, lambda row: row[0]):
-                resource = Resource(self.realm, name)
-                if self.fast_permcheck or \
-                        self._check_permission(req, resource, 'view'):
-                    yield resource, set([tag[1] for tag in tags])
+            with self.env.db_query as db:
+	            cursor = db.cursor()
+	            sql = """
+	                SELECT ts.name, ts.tag
+	                  FROM tags
+	                  LEFT JOIN tags ts ON (
+	                       tags.tagspace=ts.tagspace AND tags.name=ts.name)
+	                 WHERE tags.tagspace=%%s AND tags.tag IN (%s)
+	                 ORDER by ts.name
+	            """ % ', '.join(['%s' for t in tags])
+	            args = [self.realm] + list(tags)
+	            cursor.execute(sql, args)
+	            for name, tags in groupby(cursor, lambda row: row[0]):
+	                resource = Resource(self.realm, name)
+	                if self.fast_permcheck or \
+	                        self._check_permission(req, resource, 'view'):
+	                    yield resource, set([tag[1] for tag in tags])
 
     def get_resource_tags(self, req, resource):
         assert resource.realm == self.realm
@@ -256,17 +257,17 @@ class TicketTagProvider(DefaultTagProvider):
         @cached
         def _tagged_resources(self, db=None):
             """Cached version."""
-            db = self.env.get_db_cnx()
-            cursor = db.cursor()
-            sql = """
-                SELECT name, tag
-                  FROM tags
-                 WHERE tagspace=%s
-                 ORDER by name
-            """
-            self.log.debug('ENTER_TAG_DB_CHECKOUT')
-            cursor.execute(sql, (self.realm,))
-            self.log.debug('EXIT_TAG_DB_CHECKOUT')
+            with self.env.db_query as db:
+	            cursor = db.cursor()
+	            sql = """
+	                SELECT name, tag
+	                  FROM tags
+	                 WHERE tagspace=%s
+	                 ORDER by name
+	            """
+	            self.log.debug('ENTER_TAG_DB_CHECKOUT')
+	            cursor.execute(sql, (self.realm,))
+	            self.log.debug('EXIT_TAG_DB_CHECKOUT')
 
             resources = []
             self.log.debug('ENTER_TAG_GRID_MAKER')
@@ -283,24 +284,24 @@ class TicketTagProvider(DefaultTagProvider):
         @property
         def _tagged_resources(self, db=None):
             """The old, uncached method."""
-            db = self.env.get_db_cnx()
-            cursor = db.cursor()
-            sql = """
-                SELECT name, tag
-                  FROM tags
-                 WHERE tagspace=%s
-                 ORDER by name
-            """
-            self.log.debug('ENTER_PER_REQ_TAG_DB_CHECKOUT')
-            cursor.execute(sql, (self.realm,))
-            self.log.debug('EXIT_PER_REQ_TAG_DB_CHECKOUT')
-
-            self.log.debug('ENTER_TAG_GRID_MAKER_UNCACHED')
-            for name, tags in groupby(cursor, lambda row: row[0]):
-                resource = Resource(self.realm, name)
-                yield resource, set([tag[1] for tag in tags])
-            self.log.debug('EXIT_TAG_GRID_MAKER_UNCACHED')
-
+            with self.env.db_query as db:
+	            cursor = db.cursor()
+	            sql = """
+	                SELECT name, tag
+	                  FROM tags
+	                 WHERE tagspace=%s
+	                 ORDER by name
+	            """
+	            self.log.debug('ENTER_PER_REQ_TAG_DB_CHECKOUT')
+	            cursor.execute(sql, (self.realm,))
+	            self.log.debug('EXIT_PER_REQ_TAG_DB_CHECKOUT')
+	
+	            self.log.debug('ENTER_TAG_GRID_MAKER_UNCACHED')
+	            for name, tags in groupby(cursor, lambda row: row[0]):
+	                resource = Resource(self.realm, name)
+	                yield resource, set([tag[1] for tag in tags])
+	            self.log.debug('EXIT_TAG_GRID_MAKER_UNCACHED')
+	
     def _ticket_tags(self, ticket):
         return split_into_tags(
             ' '.join(filter(None, [ticket[f] for f in self.fields])))

@@ -86,7 +86,7 @@ class TagSetup(Component):
     def get_schema_version(self, db=None):
         """Return the current schema version for this plugin."""
         if not db:
-            db = self.env.get_db_cnx()
+            db = self.env.db_query()
         cursor = db.cursor()
         cursor.execute("""
             SELECT value
